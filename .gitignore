@@ -15,3 +15,5 @@ documents/*.pdf
 .idea/
 
 *.log
+
+data/

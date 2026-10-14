@@ -1,0 +1,6 @@
+# Pacotes do modo COM IA (opcional). Instale depois do requirements.txt:
+#   python -m pip install -r requirements-ia.txt
+chromadb==1.5.9
+google-genai==2.28.0
+sentence-transformers==6.1.0
+scikit-learn==1.9.1

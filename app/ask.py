@@ -1,97 +1,58 @@
-import chromadb
-from sentence_transformers import SentenceTransformer
-from app.llm import gerar_resposta
+"""Perguntas pelo terminal (por padrão SEM IA).
 
-
-# ============================================================
-# 1. MODELO DE EMBEDDINGS
-# ============================================================
-
-model = SentenceTransformer("all-MiniLM-L6-v2")
-
-
-# ============================================================
-# 2. BANCO VETORIAL
-# ============================================================
-
-client = chromadb.PersistentClient(
-    path="chroma_db"
-)
-
-collection = client.get_collection(
-    name="documents"
-)
-
-
-# ============================================================
-# 3. BUSCA SEMÂNTICA
-# ============================================================
-
-def buscar_documentos(pergunta: str, quantidade: int = 3):
-
-    pergunta_embedding = model.encode(
-        [pergunta]
-    ).tolist()
-
-    resultados = collection.query(
-        query_embeddings=pergunta_embedding,
-        n_results=quantidade
-    )
-
-    return resultados["documents"][0]
-
-
-# ============================================================
-# 4. MONTAR O CONTEXTO
-# ============================================================
-
-def montar_contexto(documentos):
-
-    contexto = ""
-
-    for i, documento in enumerate(documentos, start=1):
-
-        contexto += f"""
---- TRECHO {i} ---
-
-{documento}
-
+    python -m app.ask "Qual é o prazo de devolução?"          busca por palavras-chave, offline
+    python -m app.ask "Qual é o prazo?" --ia                  usa o Gemini (precisa de chave e dos pacotes da IA)
+    python -m app.ask "Qual é o prazo?" --trechos             mostra também o texto das fontes
 """
+import sys
 
-    return contexto
+from app import config
 
 
-# ============================================================
-# 5. TESTE
-# ============================================================
+def main(argumentos: list[str]) -> int:
+    usar_ia = "--ia" in argumentos
+    mostrar_trechos = "--trechos" in argumentos
+    pergunta = " ".join(a for a in argumentos if a not in ("--ia", "--trechos")).strip()
+
+    if not pergunta:
+        pergunta = input("Faça uma pergunta sobre os documentos: ").strip()
+
+    try:
+        if usar_ia:
+            from app.llm import LLMError
+            from app.rag import responder
+            from app.vector_store import abrir_colecao
+
+            resultado = responder(pergunta, abrir_colecao())
+        else:
+            from app.keyword_store import abrir_banco
+            from app.offline import responder_sem_ia
+
+            LLMError = ValueError
+            resultado = responder_sem_ia(pergunta, abrir_banco())
+    except (ValueError, LLMError) as erro:
+        print(erro)
+        return 1
+    except ImportError:
+        print("Para usar a IA, instale os pacotes dela: python -m pip install -r requirements-ia.txt")
+        return 1
+
+    print("\n" + resultado["resposta"])
+
+    if resultado["fontes"]:
+        print("\nFontes:")
+
+    for fonte in resultado["fontes"]:
+        print(f"  [{fonte['numero']}] {fonte['arquivo']}, página {fonte['pagina']} ({fonte['detalhe']})")
+
+        if mostrar_trechos:
+            print(f"      {fonte['trecho']}")
+
+    if usar_ia and not resultado["encontrou"] and resultado["melhor_distancia"] is not None:
+        print(f"\n(melhor distância: {resultado['melhor_distancia']:.2f}; limite: {config.MAX_DISTANCE})")
+
+    return 0
+
 
 if __name__ == "__main__":
-
-    pergunta = input(
-        "Faça uma pergunta sobre o documento: "
-    )
-
-    documentos = buscar_documentos(pergunta)
-
-    contexto = montar_contexto(documentos)      
-    
-    resposta = gerar_resposta(
-        pergunta,
-        contexto
-    )        
-
-
-    print("\n")
-    print("=" * 70)
-    print("CONTEXTO ENCONTRADO PELO RAG")
-    print("=" * 70)
-
-    print(contexto)
-    
-    print("\n")
-    print("=" * 70)
-    print("RESPOSTA DO GEMINI")
-    print("=" * 70)
-    
-    print(resposta)
-    
+    sys.exit(main(sys.argv[1:]))
